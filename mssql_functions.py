@@ -48,6 +48,44 @@ def sql_recolecciones(id, estado):
     except Exception as err:
         raise TypeError("sql_read_where:%s" % err)
     
+def sql_recoleccion_detalles(id):
+    import pymssql
+    global cnx, mssql_params
+    read = "SELECT * FROM Recibos R JOIN Donadores D ON R._id_donador = D._id_donador WHERE _id_recibo = %s" % (id)
+    try:
+        try:
+            cursor = cnx.cursor(as_dict=True)
+            cursor.execute(read)
+        except pymssql._pymssql.InterfaceError:
+            print("reconnecting...")
+            cnx = mssql_connect(mssql_params)
+            cursor = cnx.cursor(as_dict=True)
+            cursor.execute(read)
+        recoleccion = cursor.fetchall()
+        cursor.close()
+        return recoleccion
+    except Exception as err:
+        raise TypeError("sql_read_where:%s" % err)
+    
+def sql_recoleccion_estado(id, estado, comentarios):
+    import pymssql
+    global cnx, mssql_params
+    update = "UPDATE Recibos SET estado_recogido = '%s', comentarios = '%s' WHERE _id_recibo = %s" % (estado, comentarios, id)
+    try:
+        try:
+            cursor = cnx.cursor(as_dict=True)
+            a = cursor.execute(update)
+        except pymssql._pymssql.InterfaceError:
+            print("reconnecting...")
+            cnx = mssql_connect(mssql_params)
+            cursor = cnx.cursor(as_dict=True)
+            a = cursor.execute(update)
+        cnx.commit()
+        cursor.close()
+        return a
+    except Exception as e:
+        raise TypeError("sql_update_where:%s" % e)
+    
 def sql_insert_recolector(table_name, d):
     import pymssql
     import bcrypt
