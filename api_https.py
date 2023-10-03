@@ -2,13 +2,14 @@ from flask import Flask, jsonify, make_response, request, send_file
 import json
 import sys
 import mssql_functions as MSSql
+import os
 
 # Connect to mssql dB from start
 mssql_params = {}
-mssql_params['DB_HOST'] = '10.14.255.69'
-mssql_params['DB_NAME'] = 'Argonautasuwutest1'
-mssql_params['DB_USER'] = 'SA'
-mssql_params['DB_PASSWORD'] = 'Argentina2-'
+mssql_params['DB_HOST'] = os.environ["DB_HT"]
+mssql_params['DB_NAME'] = os.environ["DB_NM"]
+mssql_params['DB_USER'] = os.environ["DB_US"]
+mssql_params['DB_PASSWORD'] = os.environ["DB_PW"]
 
 try:
     MSSql.cnx = MSSql.mssql_connect(mssql_params)
@@ -39,6 +40,22 @@ def recolecciones():
     estado = request.args.get('estado', None)
     recolecciones = MSSql.sql_recolecciones(id, estado)
     return make_response(jsonify({"recolecciones": recolecciones, "success": True}))
+
+@app.route("/detalles", methods=['GET'])
+def recoleccion_detalles():
+    id = request.args.get('id', None)
+    recoleccion = MSSql.sql_recoleccion_detalles(id)
+    return make_response(jsonify({"recoleccion": recoleccion, "success": True}))
+
+@app.route("/estado", methods=['PUT'])
+def recoleccion_estado():
+    d = request.json
+    id = d['id']
+    estado = d['estado']
+    comentarios = d['comentarios']
+    MSSql.sql_recoleccion_estado(id, estado, comentarios)
+    return make_response(jsonify({"mensaje": 'Estado Actualizado Exitosamente', "id": id, "success": True}))
+    
 
 @app.route("/crud/create", methods=['POST'])
 def crud_create():
