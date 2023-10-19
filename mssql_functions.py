@@ -10,19 +10,23 @@ def mssql_connect(sql_creds):
         database=sql_creds['DB_NAME'])
     return cnx
 
-def sql_log_in(username):
-    import pymssql
+def sql_log_in(username, usertype):
     global cnx, mssql_params
-    read = "SELECT * FROM Recolectores WHERE usuario = '%s'" % (username)
+    read = ""
+    if(usertype == "Admin"):
+        read = "SELECT * FROM Administradores WHERE usuario = %s"
+    else:
+        read = "SELECT * FROM Recolectores WHERE usuario = %s"
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (username,))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (username,))
+        
         userdata = cursor.fetchall()
         cursor.close()
         return userdata
@@ -32,16 +36,16 @@ def sql_log_in(username):
 def sql_recolecciones(id, estado):
     import pymssql
     global cnx, mssql_params
-    read = "SELECT * FROM Recibos WHERE _id_recolector = '%s' AND estado_recogido = '%s'" % (id, estado)
+    read = "SELECT * FROM Recibos WHERE _id_recolector = %s AND estado_recogido = %s"
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (id, estado,))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (id, estado,))
         recolecciones = cursor.fetchall()
         cursor.close()
         return recolecciones
@@ -51,16 +55,16 @@ def sql_recolecciones(id, estado):
 def sql_recoleccion_detalles(id):
     import pymssql
     global cnx, mssql_params
-    read = "SELECT * FROM Recibos R JOIN Donadores D ON R._id_donador = D._id_donador WHERE _id_recibo = %s" % (id)
+    read = "SELECT * FROM Recibos R JOIN Donadores D ON R._id_donador = D._id_donador WHERE _id_recibo = %s"
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (id,))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (id,))
         recoleccion = cursor.fetchall()
         cursor.close()
         return recoleccion
@@ -70,25 +74,45 @@ def sql_recoleccion_detalles(id):
 def sql_recoleccion_estado(id, estado, comentarios):
     import pymssql
     global cnx, mssql_params
-    update = "UPDATE Recibos SET estado_recogido = '%s', comentarios = '%s' WHERE _id_recibo = %s" % (estado, comentarios, id)
+    update = "UPDATE Recibos SET estado_recogido = %s, comentarios = %s WHERE _id_recibo = %s"
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            a = cursor.execute(update)
+            a = cursor.execute(update, (estado, comentarios, id,))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            a = cursor.execute(update)
+            a = cursor.execute(update, (estado, comentarios, id,))
         cnx.commit()
         cursor.close()
         return a
     except Exception as e:
         raise TypeError("sql_update_where:%s" % e)
-    
-def sql_insert_recolector(table_name, d):
+
+def sql_recolectores(id):
     import pymssql
-    import bcrypt
+    global cnx, mssql_params
+    read = "SELECT * FROM Recolectores WHERE _id_adminisrador = %s"
+    try:
+        try:
+            cursor = cnx.cursor(as_dict=True)
+            cursor.execute(read, (id,))
+        except pymssql._pymssql.InterfaceError:
+            print("reconnecting...")
+            cnx = mssql_connect(mssql_params)
+            cursor = cnx.cursor(as_dict=True)
+            cursor.execute(read, (id,))
+        recolecciones = cursor.fetchall()
+        cursor.close()
+        return recolecciones
+    except Exception as err:
+        raise TypeError("sql_read_where:%s" % err)
+
+import pymssql
+import bcrypt
+
+def sql_insert_recolector(table_name, d):
     global cnx, mssql_params
     keys = ""
     values = ""
@@ -96,12 +120,11 @@ def sql_insert_recolector(table_name, d):
     for k in d:
         keys += k + ','
         values += "%s," 
-        if isinstance(d[k],bool):
+        if isinstance(d[k], bool):
             data.append(int(d[k] == True))
         else:
             data.append(d[k])
 
-    
     keys += 'contrasena' + ','
     values += "%s," 
     password = "1234".encode('utf-8')  # Encode the password as bytes
@@ -110,19 +133,18 @@ def sql_insert_recolector(table_name, d):
 
     keys = keys[:-1]
     values = values[:-1]
-    insert = 'INSERT INTO %s (%s) VALUES (%s)'  % (table_name, keys, values)
-    data = tuple(data)
-    print(data)
-    print(insert)
+    insert = 'INSERT INTO %s (%s) VALUES (%s)'
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(insert, data)
+            query = insert % (table_name, keys, values)
+            cursor.execute(query, data)
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(insert, data)
+            query = insert % (table_name, keys, values)
+            cursor.execute(query, data)
         cnx.commit()
         id_new = cursor.lastrowid
         cursor.close()
@@ -130,30 +152,38 @@ def sql_insert_recolector(table_name, d):
     except Exception as e:
         raise TypeError("sql_insert_row_into:%s" % e)
 
+
 def read_user_data(table_name, username):
     import pymssql
     global cnx, mssql_params
-    read = "SELECT * FROM {} WHERE username = '{}'".format(table_name, username)
-    #print(read)
+    read = "SELECT * FROM {} WHERE username = %s".format(table_name)
+    
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (username,))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, (username,))
         a = cursor.fetchall()
         cursor.close()
         return a
     except Exception as e:
         raise TypeError("read_user_data: %s" % e)
 
+
+import pymssql
+
 def sql_read_all(table_name):
-    import pymssql
     global cnx, mssql_params
-    read = 'SELECT * FROM %s' % table_name
+    # Check if the table_name is a valid table name
+    # You should implement your own validation logic here
+    if not is_valid_table_name(table_name):
+        raise ValueError("Invalid table name")
+
+    read = 'SELECT * FROM {}'.format(table_name)
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
@@ -168,110 +198,132 @@ def sql_read_all(table_name):
         return a
     except Exception as e:
         raise TypeError("sql_read_where:%s" % e)
+
+# Implement your own validation logic for table names
+def is_valid_table_name(table_name):
+    # You should define your own validation rules here
+    # For example, check if the table_name only contains allowed characters
+    # and does not contain SQL keywords
+    # This is a simplified example; you may need more stringent checks.
+    allowed_characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
+    if all(c in allowed_characters for c in table_name):
+        return True
+    return False
+
+
+import pymssql
 
 def sql_read_where(table_name, d_where):
-    import pymssql
     global cnx, mssql_params
-    read = 'SELECT * FROM %s WHERE ' % table_name
-    read += '('
-    for k,v in d_where.items():
+    placeholders = []
+    values = []
+
+    for k, v in d_where.items():
         if v is not None:
-            if isinstance(v,bool):
-                read += "%s = '%s' AND " % (k,int(v == True))
+            if isinstance(v, bool):
+                placeholders.append("{} = %s".format(k))
+                values.append(int(v))
             else:
-                read += "%s = '%s' AND " % (k,v)
+                placeholders.append("{} = %s".format(k))
+                values.append(v)
         else:
-            read += '%s is NULL AND ' % (k)
-    # Remove last "AND "
-    read = read[:-4]
-    read += ')'
+            placeholders.append("{} IS NULL".format(k))
+
+    where_clause = " AND ".join(placeholders)
+    read = "SELECT * FROM {} WHERE {}".format(table_name, where_clause)
+
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, tuple(values))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            cursor.execute(read)
+            cursor.execute(read, tuple(values))
         a = cursor.fetchall()
         cursor.close()
         return a
     except Exception as e:
         raise TypeError("sql_read_where:%s" % e)
 
+
+import pymssql
+
 def sql_update_where(table_name, d_field, d_where):
-    import pymssql
     global cnx, mssql_params
-    update = 'UPDATE %s SET ' % table_name
-    for k,v in d_field.items():
+    set_clauses = []
+    where_clauses = []
+    values = []
+
+    for k, v in d_field.items():
         if v is None:
-            update +='%s = NULL, ' % (k)
-        elif isinstance(v,bool):
-            update +='%s = %s, ' % (k,int(v == True))
-        elif isinstance(v,str):
-            update +="%s = '%s', " % (k,v)
+            set_clauses.append("{} = NULL".format(k))
         else:
-            update +='%s = %s, ' % (k,v)
-    # Remove last ", "
-    update = update[:-2]
-    update += ' WHERE ( '
-    for k,v in d_where.items():
+            set_clauses.append("{} = %s".format(k))
+            values.append(v)
+
+    for k, v in d_where.items():
         if v is not None:
-            if isinstance(v,bool):
-                update += "%s = '%s' AND " % (k,int(v == True))
-            else:
-                update += "%s = '%s' AND " % (k,v)
+            where_clauses.append("{} = %s".format(k))
+            values.append(v)
         else:
-            update += '%s is NULL AND ' % (k)
-    # Remove last "AND "
-    update = update[:-4]
-    update += ")"
-    #print(update)
+            where_clauses.append("{} IS NULL".format(k))
+
+    set_clause = ", ".join(set_clauses)
+    where_clause = " AND ".join(where_clauses)
+
+    update = "UPDATE {} SET {} WHERE ({})".format(table_name, set_clause, where_clause)
+
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            a = cursor.execute(update)
+            cursor.execute(update, tuple(values))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            a = cursor.execute(update)
+            cursor.execute(update, tuple(values))
         cnx.commit()
         cursor.close()
-        return a
+        return cursor.rowcount
     except Exception as e:
         raise TypeError("sql_update_where:%s" % e)
 
+
+import pymssql
+
 def sql_delete_where(table_name, d_where):
-    import pymssql
     global cnx, mssql_params
-    delete = 'DELETE FROM %s ' % table_name
-    delete += ' WHERE ( '
-    for k,v in d_where.items():
+    where_clauses = []
+    values = []
+
+    for k, v in d_where.items():
         if v is not None:
-            if isinstance(v,bool):
-                delete += "%s = '%s' AND " % (k,int(v == True))
+            if isinstance(v, bool):
+                where_clauses.append("{} = %s".format(k))
+                values.append(int(v))
             else:
-                delete += "%s = '%s' AND " % (k,v)
+                where_clauses.append("{} = %s".format(k))
+                values.append(v)
         else:
-            delete += '%s is NULL AND ' % (k)
-    # Remove last "AND "
-    delete = delete[:-4]
-    delete += ")"
-    #print(delete)
+            where_clauses.append("{} IS NULL".format(k))
+
+    where_clause = " AND ".join(where_clauses)
+    delete = "DELETE FROM {} WHERE ({})".format(table_name, where_clause)
+
     try:
         try:
             cursor = cnx.cursor(as_dict=True)
-            a = cursor.execute(delete)
+            cursor.execute(delete, tuple(values))
         except pymssql._pymssql.InterfaceError:
             print("reconnecting...")
             cnx = mssql_connect(mssql_params)
             cursor = cnx.cursor(as_dict=True)
-            a = cursor.execute(delete)
+            cursor.execute(delete, tuple(values))
         cnx.commit()
         cursor.close()
-        return a
+        return cursor.rowcount
     except Exception as e:
         raise TypeError("sql_delete_where:%s" % e)
 
