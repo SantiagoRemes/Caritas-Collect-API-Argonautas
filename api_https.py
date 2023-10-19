@@ -17,22 +17,78 @@ except Exception as e:
     print("Cannot connect to mssql server!: {}".format(e))
     sys.exit()
 
+try:
+    import logging
+    import logging.handlers
+    # Logging (remember the 5Ws: “What”, “When”, “Who”, “Where”, “Why”)
+    LOG_PATH = '/var/log/api_https'
+    LOGFILE = LOG_PATH  + '/api_https.log'
+    logformat = '%(asctime)s.%(msecs)03d %(levelname)s: %(message)s'
+    formatter = logging.Formatter(logformat, datefmt='%d-%b-%y %H:%M:%S')
+    loggingRotativo = False
+    DEV = True
+    if loggingRotativo:
+        # Logging rotativo
+        LOG_HISTORY_DAYS = 3
+        handler = logging.handlers.TimedRotatingFileHandler(
+                LOGFILE,
+                when='midnight',
+                backupCount=LOG_HISTORY_DAYS)
+    else:
+        handler = logging.FileHandler(filename=LOGFILE)
+    handler.setFormatter(formatter)
+    my_logger = logging.getLogger("api_https")
+    my_logger.addHandler(handler)
+    if DEV:
+        my_logger.setLevel(logging.DEBUG)
+    else:
+        my_logger.setLevel(logging.INFO)
+except:
+    pass
+
+# Remove 'Server' from header
+from gunicorn.http import wsgi
+class Response(wsgi.Response):
+    def default_headers(self, *args, **kwargs):
+        headers = super(Response, self).default_headers(*args, **kwargs)
+        return [h for h in headers if not h.startswith('Server:')]
+wsgi.Response = Response
+
 app = Flask(__name__)
+
+@app.after_request
+def add_header(r):
+    import secure
+    secure_headers = secure.Secure()
+    secure_headers.framework.flask(r)
+    #r.headers['X-Frame-Options'] = 'SAMEORIGIN' # ya lo llena 'secure'
+    r.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    r.headers["Content-Security-Policy"] = "default-src 'none'"
+    r.headers["Content-type"] = "application/json"
+    r.headers["Server"] = "None"
+    #r.headers["Expires"] = "0"
+    return r
 
 @app.route("/login", methods=['GET'])
 def log_in():
     import bcrypt
     username = request.args.get('usuario', None)
     password = request.args.get('contrasena', None)
-    d_user = MSSql.sql_log_in(username)
+    usertype = request.args.get('usertype', None)
+    d_user = MSSql.sql_log_in(username, usertype)
     if(len(d_user) == 0):
-        return make_response(jsonify({"mensaje": "El usuario no existe", "success": False, "_id_recolector": -1}))
+        return make_response(jsonify({"mensaje": "El usuario no existe", "success": False, "id": -1}))
     bpassword = password.encode('utf-8')
     stored_hash = d_user[0]['contrasena'].encode('utf-8')
-    if bcrypt.checkpw(bpassword, stored_hash):
-        return make_response(jsonify({"mensaje": "La contraseña es correcta", "success": True, "_id_recolector": int(d_user[0]['_id_recolector'])}))
+    id = 0
+    if(usertype == "Admin"):
+        id = d_user[0]['_id_adminisrador']
     else:
-        return make_response(jsonify({"mensaje": "La contraseña es incorrecta", "success": False, "_id_recolector": -1}))
+        id = d_user[0]['_id_recolector']
+    if bcrypt.checkpw(bpassword, stored_hash):
+        return make_response(jsonify({"mensaje": "La contraseña es correcta", "success": True, "id": int(id)}))
+    else:
+        return make_response(jsonify({"mensaje": "La contraseña es incorrecta", "success": False, "id": -1}))
 
 @app.route("/recolecciones", methods=['GET'])
 def recolecciones():
@@ -43,8 +99,13 @@ def recolecciones():
 
 @app.route("/detalles", methods=['GET'])
 def recoleccion_detalles():
+    import requests
     id = request.args.get('id', None)
     recoleccion = MSSql.sql_recoleccion_detalles(id)
+    print(recoleccion)
+    response = requests.get("https://geocode.maps.co/search?q={}}")
+    recoleccion["lat"] = response.lat
+    recoleccion["long"] = response.long
     return make_response(jsonify({"recoleccion": recoleccion, "success": True}))
 
 @app.route("/estado", methods=['PUT'])
@@ -55,7 +116,12 @@ def recoleccion_estado():
     comentarios = d['comentarios']
     MSSql.sql_recoleccion_estado(id, estado, comentarios)
     return make_response(jsonify({"mensaje": 'Estado Actualizado Exitosamente', "id": id, "success": True}))
-    
+
+@app.route("/recolectores", methods=['GET'])
+def recolectores():
+    id = request.args.get('id', None)
+    recolectores = MSSql.sql_recolectores(id)
+    return make_response(jsonify({"recolectores": recolectores, "success": True}))
 
 @app.route("/crud/create", methods=['POST'])
 def crud_create():
@@ -100,5 +166,7 @@ API_CERT = '/home/user01/Reto/SSL/equipo05.tc2007b.tec.mx.cer'
 API_KEY = '/home/user01/Reto/SSL/equipo05.tc2007b.tec.mx.key'
 
 if __name__ == '__main__':
-    print ("Running API...")
-    app.run(host='0.0.0.0', port=10206, debug=True)
+    import ssl
+    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+    context.load_cert_chain(API_CERT, API_KEY)
+    app.run(host='0.0.0.0', port=10206, ssl_context=context, debug=False)
